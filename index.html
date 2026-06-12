@@ -175,7 +175,7 @@
       <span class="lbl">Foraging radius</span>
     </label>
     <div class="note">Radii: solid ring ≈ 1 km typical forage, faint ring ≈ 3 km max (honeybee).</div>
-    <div class="note">Road barriers: red heat grades roads by how hard they are to cross — weighted by class, lanes &amp; speed limit (OSM). Hotter = busier crossing for a bee.</div>
+    <div class="note">Road barriers: motorways &amp; trunk roads only — the fast-traffic gaps a bee struggles to cross. Heat is weighted by class, lanes &amp; speed limit (OSM); quiet streets and footpaths are excluded.</div>
     <div class="status" id="status">Loading observations…</div>
   </section>
 
@@ -274,16 +274,18 @@ async function loadHeat(){
 }
 
 // ---------- Road network → barrier heat (OpenStreetMap / Overpass) ----------
-// No keyless live-traffic feed exists, so "busyness" is proxied from OSM tags:
-// base weight by road class, then nudged by lane count and speed limit. A real
-// traffic API (TomTom/HERE) would slot in as one more multiplier on `w` below.
+// Bees only meet real interference at fast vehicular traffic, so we map only
+// motorways and trunk roads (plus their ramp links) — a footpath or quiet
+// street is no barrier. No keyless live-traffic feed exists, so "busyness" is
+// proxied from OSM tags: base weight by class, nudged by lane count and speed
+// limit. A real traffic API (TomTom/HERE) would slot in as one more
+// multiplier on `w` below.
 const ROAD_WEIGHT={
-  motorway:1.00, motorway_link:.88, trunk:.94, trunk_link:.82,
-  primary:.80, primary_link:.70, secondary:.62, secondary_link:.55,
-  tertiary:.46, tertiary_link:.40, unclassified:.32, residential:.30, road:.30,
-  living_street:.20, service:.16, pedestrian:.14, track:.12,
-  cycleway:.10, footway:.08, path:.08, bridleway:.08, steps:.05
+  motorway:1.00, motorway_link:.85,
+  trunk:.92,     trunk_link:.78
 };
+// Only these classes are pulled and heated — keep in sync with the Overpass filter.
+const ROAD_CLASSES=Object.keys(ROAD_WEIGHT);
 const ROAD_PT_CAP=45000; // keep Leaflet.heat responsive on mobile
 
 function haversine(lat1,lon1,lat2,lon2){
@@ -318,7 +320,8 @@ function roadWeight(tags){
 async function loadRoads(){
   try{
     const q=`[out:json][timeout:30];`
-      +`way["highway"](${HKI.south},${HKI.west},${HKI.north},${HKI.east});`
+      +`way["highway"~"^(${ROAD_CLASSES.join('|')})$"]`
+      +`(${HKI.south},${HKI.west},${HKI.north},${HKI.east});`
       +`out geom;`;
     const r=await fetch('https://overpass-api.de/api/interpreter',
       {method:'POST',body:'data='+encodeURIComponent(q)});
