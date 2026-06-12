@@ -58,10 +58,14 @@
   .plate .regions{
     margin:6px 0 0;padding-left:16px;font-size:11.5px;line-height:1.5;color:var(--ink-dim);
   }
+  .plate .regions ul{
+    margin:4px 0 2px;padding-left:15px;list-style:circle;
+  }
   .region-link{
     cursor:pointer;color:var(--ink);border-bottom:1px dotted var(--honey);
     transition:color .12s ease;
   }
+  .region-link.top{font-weight:650}
   .region-link:hover{color:var(--honey)}
 
   /* ---- Control panel ---- */
@@ -151,13 +155,17 @@
   <details class="about" open>
     <summary><h1>🐝 Buzzmap</h1></summary>
     <div class="desc">Bee observation density, located honeybee colonies, and the urban grid that fragments their habitat.</div>
-    <div class="regions-h">Jump to a region</div>
+    <div class="regions-h">Regions covered</div>
     <ul class="regions">
-      <li><a class="region-link" data-lat="22.355" data-lng="114.135" data-zoom="11">All Hong Kong</a></li>
-      <li><a class="region-link" data-lat="22.265" data-lng="114.190" data-zoom="13">Hong Kong Island</a></li>
-      <li><a class="region-link" data-lat="22.320" data-lng="114.180" data-zoom="13">Kowloon</a></li>
-      <li><a class="region-link" data-lat="22.440" data-lng="114.120" data-zoom="12">New Territories</a></li>
-      <li><a class="region-link" data-lat="22.265" data-lng="113.945" data-zoom="12">Lantau Island</a></li>
+      <li>
+        <a class="region-link top" data-lat="22.355" data-lng="114.135" data-zoom="11">Hong Kong</a>
+        <ul>
+          <li><a class="region-link" data-lat="22.265" data-lng="114.190" data-zoom="13">Hong Kong Island</a></li>
+          <li><a class="region-link" data-lat="22.320" data-lng="114.180" data-zoom="13">Kowloon</a></li>
+          <li><a class="region-link" data-lat="22.440" data-lng="114.120" data-zoom="12">New Territories</a></li>
+          <li><a class="region-link" data-lat="22.265" data-lng="113.945" data-zoom="12">Lantau Island</a></li>
+        </ul>
+      </li>
     </ul>
   </details>
 </div>
