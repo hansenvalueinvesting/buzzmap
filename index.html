@@ -151,9 +151,13 @@
   <details class="about" open>
     <summary><h1>🐝 Buzzmap</h1></summary>
     <div class="desc">Bee observation density, located honeybee colonies, and the urban grid that fragments their habitat.</div>
-    <div class="regions-h">Currently covered regions</div>
+    <div class="regions-h">Jump to a region</div>
     <ul class="regions">
-      <li><a class="region-link" data-lat="22.255" data-lng="114.175" data-zoom="13">Hong Kong Island</a></li>
+      <li><a class="region-link" data-lat="22.355" data-lng="114.135" data-zoom="11">All Hong Kong</a></li>
+      <li><a class="region-link" data-lat="22.265" data-lng="114.190" data-zoom="13">Hong Kong Island</a></li>
+      <li><a class="region-link" data-lat="22.320" data-lng="114.180" data-zoom="13">Kowloon</a></li>
+      <li><a class="region-link" data-lat="22.440" data-lng="114.120" data-zoom="12">New Territories</a></li>
+      <li><a class="region-link" data-lat="22.265" data-lng="113.945" data-zoom="12">Lantau Island</a></li>
     </ul>
   </details>
 </div>
@@ -222,11 +226,11 @@
    Single-file. Reads hives.json from same dir. No build step.
    ============================================================ */
 
-// Hong Kong Island bounding box [S, W, N, E] — used for the iNat query
-const HKI = { south:22.18, west:114.10, north:22.30, east:114.27, center:[22.255,114.175] };
+// Hong Kong territory bounding box [S, W, N, E] — used for the iNat & road queries
+const HKI = { south:22.13, west:113.82, north:22.58, east:114.45, center:[22.355,114.135] };
 
 const map = L.map('map',{ zoomControl:true, attributionControl:true })
-  .setView(HKI.center, 13);
+  .setView(HKI.center, 11);
 
 // Dark base tiles (CARTO dark) so the heat reads cleanly over the urban grid
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
@@ -275,7 +279,14 @@ function updateHiveSize(){
   hiveMarkers.forEach(m=>m.setIcon(ic));
 }
 
-map.on('zoomend',()=>{ applyHeatZoom(); updateHiveSize(); });
+// Debounce: re-tuning heat radius forces a redraw, so doing it on every step of
+// a fast zoom races Leaflet's own zoom redraw and breaks the heat canvas. Run
+// once, after zooming settles.
+let zoomSettle=null;
+map.on('zoomend',()=>{
+  clearTimeout(zoomSettle);
+  zoomSettle=setTimeout(()=>{ try{ applyHeatZoom(); updateHiveSize(); }catch(_){} },140);
+});
 
 const $=id=>document.getElementById(id);
 const setStatus=(msg,err=false)=>{const s=$('status');s.textContent=msg;s.classList.toggle('err',err);};
@@ -360,7 +371,7 @@ function roadWeight(tags){
 
 async function loadRoads(){
   try{
-    const q=`[out:json][timeout:30];`
+    const q=`[out:json][timeout:60];`
       +`way["highway"~"^(${ROAD_CLASSES.join('|')})$"]`
       +`(${HKI.south},${HKI.west},${HKI.north},${HKI.east});`
       +`out geom;`;
