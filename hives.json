@@ -1,0 +1,13 @@
+{
+  "hives": [
+    {
+      "id": "hk-001",
+      "name": "Example Hive — delete me",
+      "species": "Apis cerana",
+      "lat": 22.2783,
+      "lng": 114.1747,
+      "date": "2026-06-12",
+      "notes": "Sample entry showing the schema. Replace with real field data."
+    }
+  ]
+}

@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Urban Pollinator Connectivity Map — Hong Kong Island</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+<style>
+  :root{
+    --bg:#0e1410;
+    --panel:#141d17;
+    --panel-edge:#24332a;
+    --ink:#e6efe6;
+    --ink-dim:#8aa593;
+    --honey:#e8a93b;
+    --honey-soft:rgba(232,169,59,.16);
+    --bee:#9fd36a;        /* all-bee heat accent */
+    --apis:#e8a93b;       /* honeybee accent */
+    --hive:#ff7a59;
+    --line:#2c3d31;
+    --mono:'SFMono-Regular',ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans)}
+  #map{position:absolute;inset:0;background:var(--bg)}
+
+  /* ---- Title plate ---- */
+  .plate{
+    position:absolute;top:14px;left:14px;z-index:1000;
+    background:linear-gradient(180deg,rgba(20,29,23,.96),rgba(14,20,16,.96));
+    border:1px solid var(--panel-edge);border-radius:10px;
+    padding:14px 16px;max-width:300px;backdrop-filter:blur(6px);
+    box-shadow:0 8px 30px rgba(0,0,0,.45);
+  }
+  .plate h1{
+    margin:0;font-size:15px;letter-spacing:.02em;font-weight:650;line-height:1.25;
+  }
+  .plate .sub{
+    margin-top:4px;font-family:var(--mono);font-size:10.5px;
+    text-transform:uppercase;letter-spacing:.12em;color:var(--honey);
+  }
+  .plate .desc{margin-top:8px;font-size:11.5px;line-height:1.45;color:var(--ink-dim)}
+
+  /* ---- Control panel ---- */
+  .panel{
+    position:absolute;top:14px;right:14px;z-index:1000;width:268px;
+    background:linear-gradient(180deg,rgba(20,29,23,.97),rgba(14,20,16,.97));
+    border:1px solid var(--panel-edge);border-radius:10px;
+    backdrop-filter:blur(6px);box-shadow:0 8px 30px rgba(0,0,0,.45);
+    max-height:calc(100% - 28px);overflow-y:auto;
+  }
+  .panel section{padding:12px 14px;border-bottom:1px solid var(--line)}
+  .panel section:last-child{border-bottom:none}
+  .panel h2{
+    margin:0 0 9px;font-family:var(--mono);font-size:10px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.16em;color:var(--ink-dim);
+  }
+  .layer{display:flex;align-items:center;gap:9px;padding:5px 0;cursor:pointer;user-select:none}
+  .layer input{accent-color:var(--honey);width:14px;height:14px;cursor:pointer}
+  .layer .swatch{width:11px;height:11px;border-radius:3px;flex:0 0 auto}
+  .layer .lbl{font-size:12.5px;line-height:1.2}
+  .layer .ct{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-dim)}
+
+  .note{font-size:10.5px;color:var(--ink-dim);line-height:1.45;margin-top:8px}
+  .status{font-family:var(--mono);font-size:10px;color:var(--ink-dim);margin-top:8px}
+  .status.err{color:var(--hive)}
+
+  /* ---- Admin form ---- */
+  details.admin summary{
+    cursor:pointer;font-family:var(--mono);font-size:10px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.16em;color:var(--honey);list-style:none;
+  }
+  details.admin summary::-webkit-details-marker{display:none}
+  details.admin summary::before{content:"+ ";font-weight:700}
+  details.admin[open] summary::before{content:"– "}
+  .admin .field{margin-top:8px}
+  .admin label{display:block;font-size:10px;color:var(--ink-dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:.08em}
+  .admin input,.admin textarea{
+    width:100%;background:#0c120e;border:1px solid var(--panel-edge);border-radius:6px;
+    color:var(--ink);font-family:var(--mono);font-size:11.5px;padding:6px 8px;
+  }
+  .admin textarea{resize:vertical;min-height:38px}
+  .admin .row{display:flex;gap:8px}
+  .admin .row .field{flex:1}
+  .btn{
+    width:100%;margin-top:10px;padding:8px;border:none;border-radius:6px;cursor:pointer;
+    background:var(--honey);color:#1a1206;font-weight:650;font-size:12px;letter-spacing:.02em;
+  }
+  .btn:hover{filter:brightness(1.07)}
+  .btn.ghost{background:transparent;border:1px solid var(--panel-edge);color:var(--ink-dim);margin-top:6px}
+  .out{
+    margin-top:10px;background:#0c120e;border:1px solid var(--panel-edge);border-radius:6px;
+    padding:8px;font-family:var(--mono);font-size:10.5px;color:var(--bee);
+    white-space:pre-wrap;word-break:break-all;display:none;
+  }
+  .out.show{display:block}
+  .hint{font-size:10px;color:var(--ink-dim);line-height:1.5;margin-top:8px}
+
+  /* ---- Legend / footer credit ---- */
+  .leaflet-popup-content-wrapper{background:var(--panel);color:var(--ink);border:1px solid var(--panel-edge)}
+  .leaflet-popup-content{font-size:12px;line-height:1.45}
+  .leaflet-popup-tip{background:var(--panel)}
+  .leaflet-popup-content b{color:var(--honey)}
+  .pin-title{font-weight:650;color:var(--honey)}
+
+  @media (max-width:720px){
+    .plate{max-width:none;left:10px;right:10px;top:10px}
+    .panel{position:absolute;top:auto;bottom:10px;right:10px;left:10px;width:auto;max-height:46%}
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="plate">
+  <h1>Urban Pollinator Connectivity</h1>
+  <div class="sub">Hong Kong Island · v1</div>
+  <div class="desc">Bee observation density, located honeybee colonies, and the urban grid that fragments their habitat.</div>
+</div>
+
+<div class="panel">
+  <section>
+    <h2>Layers</h2>
+    <label class="layer">
+      <input type="checkbox" id="t-all" checked>
+      <span class="swatch" style="background:var(--bee)"></span>
+      <span class="lbl">All bees (Anthophila)</span>
+      <span class="ct" id="ct-all">…</span>
+    </label>
+    <label class="layer">
+      <input type="checkbox" id="t-apis">
+      <span class="swatch" style="background:var(--apis)"></span>
+      <span class="lbl">Honeybees (Apis)</span>
+      <span class="ct" id="ct-apis">…</span>
+    </label>
+    <label class="layer">
+      <input type="checkbox" id="t-hives" checked>
+      <span class="swatch" style="background:var(--hive)"></span>
+      <span class="lbl">Field hives</span>
+      <span class="ct" id="ct-hives">…</span>
+    </label>
+    <label class="layer">
+      <input type="checkbox" id="t-radius" checked>
+      <span class="swatch" style="background:var(--honey-soft);border:1px solid var(--honey)"></span>
+      <span class="lbl">Foraging radius</span>
+    </label>
+    <div class="note">Radii: solid ring ≈ 1 km typical forage, faint ring ≈ 3 km max (honeybee).</div>
+    <div class="status" id="status">Loading observations…</div>
+  </section>
+
+  <section>
+    <details class="admin">
+      <summary>Add a hive</summary>
+      <div class="hint">Click the map to drop coordinates here, fill in the rest, then generate. Paste the result into <b>hives.json</b> and commit — that file is the record the map reads.</div>
+      <div class="row">
+        <div class="field"><label>Lat</label><input id="f-lat" placeholder="22.2783"></div>
+        <div class="field"><label>Lng</label><input id="f-lng" placeholder="114.1747"></div>
+      </div>
+      <div class="field"><label>Name / location</label><input id="f-name" placeholder="Pok Fu Lam roadside"></div>
+      <div class="row">
+        <div class="field"><label>Species</label><input id="f-species" placeholder="Apis cerana"></div>
+        <div class="field"><label>Date</label><input id="f-date" placeholder="2026-06-12"></div>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="f-notes" placeholder="Colony in wall cavity, ~15 foragers/min"></textarea></div>
+      <button class="btn" id="gen">Generate JSON entry</button>
+      <button class="btn ghost" id="copy">Copy to clipboard</button>
+      <div class="out" id="out"></div>
+    </details>
+  </section>
+</div>
+
+<script>
+/* ============================================================
+   Urban Pollinator Connectivity Map — Hong Kong Island — v1
+   Single-file. Reads hives.json from same dir. No build step.
+   ============================================================ */
+
+// Hong Kong Island bounding box [S, W, N, E] — used for the iNat query
+const HKI = { south:22.18, west:114.10, north:22.30, east:114.27, center:[22.255,114.175] };
+
+const map = L.map('map',{ zoomControl:true, attributionControl:true })
+  .setView(HKI.center, 13);
+
+// Dark base tiles (CARTO dark) so the heat reads cleanly over the urban grid
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+  maxZoom:19,
+  attribution:'&copy; OpenStreetMap &copy; CARTO · obs. © iNaturalist'
+}).addTo(map);
+
+// ---- Layer groups ----
+let heatAll=null, heatApis=null;
+const hiveLayer  = L.layerGroup().addTo(map);
+const radiusLayer= L.layerGroup().addTo(map);
+
+const $=id=>document.getElementById(id);
+const setStatus=(msg,err=false)=>{const s=$('status');s.textContent=msg;s.classList.toggle('err',err);};
+
+// ---------- iNaturalist observation pull ----------
+// taxon_id 630955 = Anthophila (bees, superfamily) ; 47219 = Apis (honeybees, genus)
+async function pullObs(taxonId){
+  const pts=[]; let page=1; const per=200; let total=Infinity;
+  while((page-1)*per < total && page<=10){  // hard cap 2000 pts/layer
+    const url=`https://api.inaturalist.org/v1/observations`
+      +`?taxon_id=${taxonId}`
+      +`&nelat=${HKI.north}&nelng=${HKI.east}&swlat=${HKI.south}&swlng=${HKI.west}`
+      +`&quality_grade=research&geo=true&per_page=${per}&page=${page}`
+      +`&order=desc&order_by=created_at`;
+    const r=await fetch(url);
+    if(!r.ok) throw new Error('iNat HTTP '+r.status);
+    const j=await r.json();
+    total=j.total_results;
+    for(const o of j.results){
+      if(o.geojson && o.geojson.coordinates){
+        const [lng,lat]=o.geojson.coordinates;
+        pts.push([lat,lng,0.6]); // intensity
+      }
+    }
+    if(j.results.length<per) break;
+    page++;
+  }
+  return {pts,total};
+}
+
+async function loadHeat(){
+  try{
+    const all = await pullObs(630955);          // Anthophila
+    heatAll = L.heatLayer(all.pts,{radius:22,blur:18,maxZoom:15,minOpacity:.25,
+      gradient:{0.2:'#1f3d12',0.5:'#5a9a2e',0.8:'#9fd36a',1.0:'#d6f0a0'}});
+    if($('t-all').checked) heatAll.addTo(map);
+    $('ct-all').textContent=all.pts.length;
+
+    const apis = await pullObs(47219);           // Apis
+    heatApis = L.heatLayer(apis.pts,{radius:24,blur:16,maxZoom:15,minOpacity:.3,
+      gradient:{0.2:'#5a3a06',0.5:'#c98a1e',0.8:'#e8a93b',1.0:'#ffd27a'}});
+    if($('t-apis').checked) heatApis.addTo(map);
+    $('ct-apis').textContent=apis.pts.length;
+
+    setStatus(`${all.pts.length} bee + ${apis.pts.length} honeybee obs. loaded`);
+  }catch(e){
+    setStatus('Observation load failed: '+e.message,true);
+    $('ct-all').textContent='—'; $('ct-apis').textContent='—';
+  }
+}
+
+// ---------- Hive data (from repo file) ----------
+function renderHives(list){
+  hiveLayer.clearLayers(); radiusLayer.clearLayers();
+  list.forEach(h=>{
+    if(typeof h.lat!=='number'||typeof h.lng!=='number') return;
+    // typical 1km ring
+    L.circle([h.lat,h.lng],{radius:1000,color:'#e8a93b',weight:1.2,
+      fillColor:'#e8a93b',fillOpacity:.08,opacity:.7}).addTo(radiusLayer);
+    // max 3km ring
+    L.circle([h.lat,h.lng],{radius:3000,color:'#e8a93b',weight:1,
+      fill:false,opacity:.28,dashArray:'4 5'}).addTo(radiusLayer);
+    // marker
+    L.circleMarker([h.lat,h.lng],{radius:6,color:'#1a1206',weight:1.5,
+      fillColor:'#ff7a59',fillOpacity:1}).addTo(hiveLayer)
+      .bindPopup(
+        `<span class="pin-title">${h.name||'Hive'}</span><br>`
+        +`${h.species?'<i>'+h.species+'</i><br>':''}`
+        +`<b>${h.lat.toFixed(5)}, ${h.lng.toFixed(5)}</b><br>`
+        +`${h.date?h.date+'<br>':''}`
+        +`${h.notes?h.notes:''}`
+      );
+  });
+  $('ct-hives').textContent=list.length;
+}
+
+async function loadHives(){
+  try{
+    const r=await fetch('hives.json?'+Date.now()); // bust cache
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j=await r.json();
+    renderHives(j.hives||[]);
+  }catch(e){
+    $('ct-hives').textContent='0';
+    // Not fatal — repo may not have the file yet.
+    console.warn('hives.json not loaded:',e.message);
+  }
+}
+
+// ---------- Layer toggles ----------
+$('t-all').onchange   =e=>{ if(!heatAll)return; e.target.checked?heatAll.addTo(map):map.removeLayer(heatAll); };
+$('t-apis').onchange  =e=>{ if(!heatApis)return; e.target.checked?heatApis.addTo(map):map.removeLayer(heatApis); };
+$('t-hives').onchange =e=>{ e.target.checked?hiveLayer.addTo(map):map.removeLayer(hiveLayer); };
+$('t-radius').onchange=e=>{ e.target.checked?radiusLayer.addTo(map):map.removeLayer(radiusLayer); };
+
+// ---------- Click-to-capture coords for the form ----------
+map.on('click',e=>{
+  $('f-lat').value=e.latlng.lat.toFixed(5);
+  $('f-lng').value=e.latlng.lng.toFixed(5);
+});
+
+// ---------- Generate JSON entry ----------
+function nextId(){ return 'hk-'+String(Date.now()).slice(-6); }
+$('gen').onclick=()=>{
+  const lat=parseFloat($('f-lat').value), lng=parseFloat($('f-lng').value);
+  if(isNaN(lat)||isNaN(lng)){ alert('Need a valid lat and lng. Click the map to set them.'); return; }
+  const entry={
+    id:nextId(),
+    name:$('f-name').value||'Unnamed hive',
+    species:$('f-species').value||'Apis cerana',
+    lat:+lat.toFixed(5), lng:+lng.toFixed(5),
+    date:$('f-date').value||new Date().toISOString().slice(0,10),
+    notes:$('f-notes').value||''
+  };
+  $('out').textContent=JSON.stringify(entry,null,2)+',';
+  $('out').classList.add('show');
+};
+$('copy').onclick=async()=>{
+  const t=$('out').textContent; if(!t){return;}
+  try{ await navigator.clipboard.writeText(t); $('copy').textContent='Copied ✓';
+    setTimeout(()=>$('copy').textContent='Copy to clipboard',1400);}catch(_){}
+};
+
+// ---------- Go ----------
+loadHives();
+loadHeat();
+</script>
+</body>
+</html>
