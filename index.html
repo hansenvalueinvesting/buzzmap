@@ -417,7 +417,11 @@ async function loadHives(){
   try{
     const r=await fetch('hives.json?'+Date.now()); // bust cache
     if(!r.ok) throw new Error('HTTP '+r.status);
-    const j=await r.json();
+    const text=await r.text();
+    // The "Generate JSON entry" button appends a comma to each entry so they
+    // can be pasted in a row — which leaves a trailing comma on the last one.
+    // Strip trailing commas before parsing so that never breaks the map.
+    const j=JSON.parse(text.replace(/,(\s*[}\]])/g,'$1'));
     renderHives(j.hives||[]);
   }catch(e){
     $('ct-hives').textContent='0';

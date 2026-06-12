@@ -1,13 +1,13 @@
 {
   "hives": [
     {
-    "id": "hk-013085",
-    "name": "Emerald Trail, Hong Kong Island",
-    "species": "Unknown",
-    "lat": 22.24526,
-    "lng": 114.17605,
-    "date": "2026-06-12",
-    "notes": "Estimated based on iNaturalist activity. "
-    },
+      "id": "hk-013085",
+      "name": "Emerald Trail, Hong Kong Island",
+      "species": "Unknown",
+      "lat": 22.24526,
+      "lng": 114.17605,
+      "date": "2026-06-12",
+      "notes": "Estimated based on iNaturalist activity."
+    }
   ]
 }
