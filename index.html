@@ -21,6 +21,7 @@
     --bee:#9fd36a;        /* all-bee heat accent */
     --apis:#e8a93b;       /* honeybee accent */
     --hive:#ff7a59;
+    --road:#ff5a4d;       /* traffic-barrier heat accent */
     --line:#2c3d31;
     --mono:'SFMono-Regular',ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace;
     --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
@@ -157,6 +158,12 @@
       <span class="ct" id="ct-apis">…</span>
     </label>
     <label class="layer">
+      <input type="checkbox" id="t-roads" checked>
+      <span class="swatch" style="background:var(--road)"></span>
+      <span class="lbl">Road barriers</span>
+      <span class="ct" id="ct-roads">…</span>
+    </label>
+    <label class="layer">
       <input type="checkbox" id="t-hives" checked>
       <span class="swatch" style="background:var(--hive)"></span>
       <span class="lbl">Field hives</span>
@@ -168,6 +175,7 @@
       <span class="lbl">Foraging radius</span>
     </label>
     <div class="note">Radii: solid ring ≈ 1 km typical forage, faint ring ≈ 3 km max (honeybee).</div>
+    <div class="note">Road barriers: red heat grades roads by how hard they are to cross — weighted by class, lanes &amp; speed limit (OSM). Hotter = busier crossing for a bee.</div>
     <div class="status" id="status">Loading observations…</div>
   </section>
 
@@ -211,7 +219,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
 }).addTo(map);
 
 // ---- Layer groups ----
-let heatAll=null, heatApis=null;
+let heatAll=null, heatApis=null, heatRoads=null;
 const hiveLayer  = L.layerGroup().addTo(map);
 const radiusLayer= L.layerGroup().addTo(map);
 
@@ -265,6 +273,74 @@ async function loadHeat(){
   }
 }
 
+// ---------- Road network → barrier heat (OpenStreetMap / Overpass) ----------
+// No keyless live-traffic feed exists, so "busyness" is proxied from OSM tags:
+// base weight by road class, then nudged by lane count and speed limit. A real
+// traffic API (TomTom/HERE) would slot in as one more multiplier on `w` below.
+const ROAD_WEIGHT={
+  motorway:1.00, motorway_link:.88, trunk:.94, trunk_link:.82,
+  primary:.80, primary_link:.70, secondary:.62, secondary_link:.55,
+  tertiary:.46, tertiary_link:.40, unclassified:.32, residential:.30, road:.30,
+  living_street:.20, service:.16, pedestrian:.14, track:.12,
+  cycleway:.10, footway:.08, path:.08, bridleway:.08, steps:.05
+};
+const ROAD_PT_CAP=45000; // keep Leaflet.heat responsive on mobile
+
+function haversine(lat1,lon1,lat2,lon2){
+  const R=6371000, toR=Math.PI/180;
+  const dLat=(lat2-lat1)*toR, dLon=(lon2-lon1)*toR;
+  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*toR)*Math.cos(lat2*toR)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+// Walk a way's polyline, dropping a heat point every ~`spacing` metres so a
+// long road carries the same intensity per km regardless of node density.
+function densifyWay(geom,weight,spacing,out){
+  for(let i=0;i<geom.length-1;i++){
+    const a=geom[i], b=geom[i+1];
+    const steps=Math.max(1,Math.round(haversine(a.lat,a.lon,b.lat,b.lon)/spacing));
+    for(let s=0;s<steps;s++){
+      const t=s/steps;
+      out.push([a.lat+(b.lat-a.lat)*t, a.lon+(b.lon-a.lon)*t, weight]);
+    }
+  }
+  const last=geom[geom.length-1];
+  if(last) out.push([last.lat,last.lon,weight]);
+}
+function roadWeight(tags){
+  let w=ROAD_WEIGHT[tags.highway] ?? .25;
+  const lanes=parseFloat(tags.lanes);          // wider road = harder to cross
+  if(lanes>0) w*=Math.min(1.6, 1+(lanes-2)*0.12);
+  const speed=parseFloat(tags.maxspeed);        // faster traffic = deadlier gap
+  if(speed>0) w*=Math.min(1.5, speed/50);
+  return Math.max(.04, Math.min(1, w));
+}
+
+async function loadRoads(){
+  try{
+    const q=`[out:json][timeout:30];`
+      +`way["highway"](${HKI.south},${HKI.west},${HKI.north},${HKI.east});`
+      +`out geom;`;
+    const r=await fetch('https://overpass-api.de/api/interpreter',
+      {method:'POST',body:'data='+encodeURIComponent(q)});
+    if(!r.ok) throw new Error('Overpass HTTP '+r.status);
+    const j=await r.json();
+    const pts=[]; let ways=0;
+    for(const el of j.elements){
+      if(el.type!=='way' || !el.geometry || !el.tags || !el.tags.highway) continue;
+      densifyWay(el.geometry, roadWeight(el.tags), 40, pts);
+      ways++;
+      if(pts.length>ROAD_PT_CAP) break;
+    }
+    heatRoads=L.heatLayer(pts,{radius:13,blur:11,maxZoom:16,minOpacity:.28,
+      gradient:{0.2:'#3a0d0d',0.45:'#9e2b2b',0.7:'#ff5a4d',1.0:'#ffd2b0'}});
+    if($('t-roads').checked) heatRoads.addTo(map);
+    $('ct-roads').textContent=ways;
+  }catch(e){
+    $('ct-roads').textContent='—';
+    console.warn('road network not loaded:',e.message);
+  }
+}
+
 // ---------- Hive data (from repo file) ----------
 function renderHives(list){
   hiveLayer.clearLayers(); radiusLayer.clearLayers();
@@ -306,6 +382,7 @@ async function loadHives(){
 // ---------- Layer toggles ----------
 $('t-all').onchange   =e=>{ if(!heatAll)return; e.target.checked?heatAll.addTo(map):map.removeLayer(heatAll); };
 $('t-apis').onchange  =e=>{ if(!heatApis)return; e.target.checked?heatApis.addTo(map):map.removeLayer(heatApis); };
+$('t-roads').onchange =e=>{ if(!heatRoads)return; e.target.checked?heatRoads.addTo(map):map.removeLayer(heatRoads); };
 $('t-hives').onchange =e=>{ e.target.checked?hiveLayer.addTo(map):map.removeLayer(hiveLayer); };
 $('t-radius').onchange=e=>{ e.target.checked?radiusLayer.addTo(map):map.removeLayer(radiusLayer); };
 
@@ -340,6 +417,7 @@ $('copy').onclick=async()=>{
 // ---------- Go ----------
 loadHives();
 loadHeat();
+loadRoads();
 </script>
 </body>
 </html>
