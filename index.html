@@ -58,6 +58,11 @@
   .plate .regions{
     margin:6px 0 0;padding-left:16px;font-size:11.5px;line-height:1.5;color:var(--ink-dim);
   }
+  .region-link{
+    cursor:pointer;color:var(--ink);border-bottom:1px dotted var(--honey);
+    transition:color .12s ease;
+  }
+  .region-link:hover{color:var(--honey)}
 
   /* ---- Control panel ---- */
   .panel{
@@ -121,17 +126,15 @@
   .leaflet-popup-content b{color:var(--honey)}
   .pin-title{font-weight:650;color:#fff}
 
-  /* ---- Glowing white hive node ---- */
-  .hive-node{
+  /* ---- Glowing white hive node (size + glow set inline per zoom) ---- */
+  .hive-node{background:none;border:0}
+  .hive-core{
     border-radius:50%;background:#fff;
-    box-shadow:0 0 5px 1px rgba(255,255,255,.9),
-               0 0 12px 4px rgba(255,255,255,.5),
-               0 0 22px 8px rgba(255,255,255,.22);
-    animation:hiveGlow 2.4s ease-in-out infinite;
+    animation:hivePulse 2.4s ease-in-out infinite;
   }
-  @keyframes hiveGlow{
-    0%,100%{box-shadow:0 0 5px 1px rgba(255,255,255,.85),0 0 12px 4px rgba(255,255,255,.42),0 0 20px 7px rgba(255,255,255,.18)}
-    50%    {box-shadow:0 0 7px 2px rgba(255,255,255,1),  0 0 18px 6px rgba(255,255,255,.6), 0 0 28px 10px rgba(255,255,255,.28)}
+  @keyframes hivePulse{
+    0%,100%{transform:scale(.9);opacity:.92}
+    50%    {transform:scale(1.08);opacity:1}
   }
 
   @media (max-width:720px){
@@ -150,7 +153,7 @@
     <div class="desc">Bee observation density, located honeybee colonies, and the urban grid that fragments their habitat.</div>
     <div class="regions-h">Currently covered regions</div>
     <ul class="regions">
-      <li>Hong Kong Island</li>
+      <li><a class="region-link" data-lat="22.255" data-lng="114.175" data-zoom="13">Hong Kong Island</a></li>
     </ul>
   </details>
 </div>
@@ -188,7 +191,7 @@
       <span class="lbl">Foraging radius</span>
     </label>
     <div class="note">Radii: solid ring ≈ 1 km typical forage, faint ring ≈ 3 km max (honeybee).</div>
-    <div class="note">Road barriers: the full vehicular network (motorways → residential), weighted by class, lanes &amp; speed limit (OSM) so bigger, faster roads read hotter. Footpaths and tunnels are excluded.</div>
+    <div class="note">Road barriers: every vehicular road (motorways → residential) drawn as a line, shaded by activity — dim red = quiet street, bright red = busy/fast road (class, lanes &amp; speed limit, OSM). Footpaths and tunnels are excluded.</div>
     <div class="status" id="status">Loading observations…</div>
   </section>
 
@@ -232,29 +235,47 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
 }).addTo(map);
 
 // ---- Layer groups ----
-let heatAll=null, heatApis=null, heatRoads=null;
+let heatAll=null, heatApis=null;
+const roadLayer  = L.layerGroup().addTo(map);   // red road lines
 const hiveLayer  = L.layerGroup().addTo(map);
 const radiusLayer= L.layerGroup().addTo(map);
+const roadRenderer=L.canvas({padding:.3});      // canvas keeps thousands of lines fast
 
-// Heat blur radius is a fixed pixel size, so zoomed out everything merges into
-// one blob. Scale each layer's radius/blur with zoom — tight dots when zoomed
-// out, filling in as you zoom in — to keep the map readable at every scale.
+// Roads coloured by activity: dim red (quiet) → bright red (busy/fast).
+const roadColor=w=>`hsl(2,85%,${Math.round(22+Math.max(0,Math.min(1,(w-0.1)/0.9))*42)}%)`;
+
+// Heat blur radius is a fixed pixel size, so zoomed out the bee layers merge
+// into one blob. Scale each layer's radius/blur with zoom — tight dots when
+// zoomed out, filling in as you zoom in — to keep the map readable.
 const HEAT_BASE={               // radius/blur at the reference zoom (13)
   all:  {radius:17, blur:13},
-  apis: {radius:18, blur:13},
-  roads:{radius:12, blur:10}
+  apis: {radius:18, blur:13}
 };
 const scaleR=(z,base)=>Math.round(base*Math.max(.45,Math.min(1.8,1+(z-13)*0.18)));
 function applyHeatZoom(){
   const z=map.getZoom();
-  if(heatAll)  heatAll.setOptions ({radius:scaleR(z,HEAT_BASE.all.radius),  blur:scaleR(z,HEAT_BASE.all.blur)});
-  if(heatApis) heatApis.setOptions({radius:scaleR(z,HEAT_BASE.apis.radius), blur:scaleR(z,HEAT_BASE.apis.blur)});
-  if(heatRoads)heatRoads.setOptions({radius:scaleR(z,HEAT_BASE.roads.radius),blur:scaleR(z,HEAT_BASE.roads.blur)});
+  if(heatAll)  heatAll.setOptions ({radius:scaleR(z,HEAT_BASE.all.radius), blur:scaleR(z,HEAT_BASE.all.blur)});
+  if(heatApis) heatApis.setOptions({radius:scaleR(z,HEAT_BASE.apis.radius),blur:scaleR(z,HEAT_BASE.apis.blur)});
 }
-map.on('zoomend',applyHeatZoom);
 
-// Glowing white hive marker (a divIcon so CSS can give it a soft glow/pulse)
-const hiveIcon = L.divIcon({className:'hive-node',iconSize:[14,14],iconAnchor:[7,7],popupAnchor:[0,-9]});
+// Glowing white hive marker, sized per zoom so it stays tidy and doesn't
+// dominate the map when zoomed out (divIcons are fixed-pixel, so we re-issue
+// the icon on every zoom). Glow scales with the dot via inline box-shadow.
+let hiveMarkers=[];
+const hiveSizeFor=z=>Math.max(7,Math.min(15,Math.round(8+(z-12)*1.5)));
+function makeHiveIcon(s){
+  const html=`<div class="hive-core" style="width:${s}px;height:${s}px;`
+    +`box-shadow:0 0 ${s*0.4}px ${s*0.07}px rgba(255,255,255,.9),`
+    +`0 0 ${s*0.9}px ${s*0.28}px rgba(255,255,255,.5),`
+    +`0 0 ${s*1.7}px ${s*0.55}px rgba(255,255,255,.22)"></div>`;
+  return L.divIcon({className:'hive-node',html,iconSize:[s,s],iconAnchor:[s/2,s/2],popupAnchor:[0,-s/2]});
+}
+function updateHiveSize(){
+  const ic=makeHiveIcon(hiveSizeFor(map.getZoom()));
+  hiveMarkers.forEach(m=>m.setIcon(ic));
+}
+
+map.on('zoomend',()=>{ applyHeatZoom(); updateHiveSize(); });
 
 const $=id=>document.getElementById(id);
 const setStatus=(msg,err=false)=>{const s=$('status');s.textContent=msg;s.classList.toggle('err',err);};
@@ -307,14 +328,15 @@ async function loadHeat(){
   }
 }
 
-// ---------- Road network → barrier heat (OpenStreetMap / Overpass) ----------
+// ---------- Road network → barrier lines (OpenStreetMap / Overpass) ----------
 // Every road a vehicle drives on is a potential barrier, so we map the whole
 // vehicular network — motorways down to residential streets — but never
 // pedestrian/foot/cycle ways (a bee just flies over those) and never tunnels
-// (underground, so no surface barrier). Bigger, faster roads still dominate via
-// their weight. No keyless live-traffic feed exists, so "busyness" is proxied
-// from OSM tags: base weight by class, nudged by lane count and speed limit.
-// A real traffic API (TomTom/HERE) would slot in as one more multiplier on `w`.
+// (underground, so no surface barrier). Each road is drawn as a red line shaded
+// by activity: dim red = quiet street, bright red = busy/fast road. No keyless
+// live-traffic feed exists, so "busyness" is proxied from OSM tags: base weight
+// by class, nudged by lane count and speed limit. A real traffic API
+// (TomTom/HERE) would slot in as one more multiplier on `w` below.
 const ROAD_WEIGHT={
   motorway:1.00, motorway_link:.85,
   trunk:.92,     trunk_link:.78,
@@ -324,30 +346,9 @@ const ROAD_WEIGHT={
   unclassified:.30, residential:.28, road:.30,
   living_street:.18, service:.14, track:.12
 };
-// Only these classes are pulled and heated — keep in sync with the Overpass filter.
+// Only these classes are pulled and drawn — keep in sync with the Overpass filter.
 const ROAD_CLASSES=Object.keys(ROAD_WEIGHT);
-const ROAD_PT_CAP=55000; // keep Leaflet.heat responsive on mobile
 
-function haversine(lat1,lon1,lat2,lon2){
-  const R=6371000, toR=Math.PI/180;
-  const dLat=(lat2-lat1)*toR, dLon=(lon2-lon1)*toR;
-  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*toR)*Math.cos(lat2*toR)*Math.sin(dLon/2)**2;
-  return 2*R*Math.asin(Math.sqrt(a));
-}
-// Walk a way's polyline, dropping a heat point every ~`spacing` metres so a
-// long road carries the same intensity per km regardless of node density.
-function densifyWay(geom,weight,spacing,out){
-  for(let i=0;i<geom.length-1;i++){
-    const a=geom[i], b=geom[i+1];
-    const steps=Math.max(1,Math.round(haversine(a.lat,a.lon,b.lat,b.lon)/spacing));
-    for(let s=0;s<steps;s++){
-      const t=s/steps;
-      out.push([a.lat+(b.lat-a.lat)*t, a.lon+(b.lon-a.lon)*t, weight]);
-    }
-  }
-  const last=geom[geom.length-1];
-  if(last) out.push([last.lat,last.lon,weight]);
-}
 function roadWeight(tags){
   let w=ROAD_WEIGHT[tags.highway] ?? .25;
   const lanes=parseFloat(tags.lanes);          // wider road = harder to cross
@@ -367,19 +368,19 @@ async function loadRoads(){
       {method:'POST',body:'data='+encodeURIComponent(q)});
     if(!r.ok) throw new Error('Overpass HTTP '+r.status);
     const j=await r.json();
-    const pts=[]; let ways=0;
+    roadLayer.clearLayers();
+    let ways=0;
     for(const el of j.elements){
       if(el.type!=='way' || !el.geometry || !el.tags || !el.tags.highway) continue;
       if(el.tags.tunnel && el.tags.tunnel!=='no') continue; // underground = no surface barrier
-      densifyWay(el.geometry, roadWeight(el.tags), 40, pts);
+      const w=roadWeight(el.tags);
+      L.polyline(el.geometry.map(g=>[g.lat,g.lon]),{
+        renderer:roadRenderer, color:roadColor(w),
+        weight:1+w*3, opacity:.5+w*.45, lineCap:'round', lineJoin:'round'
+      }).addTo(roadLayer);
       ways++;
-      if(pts.length>ROAD_PT_CAP) break;
     }
-    heatRoads=L.heatLayer(pts,{radius:HEAT_BASE.roads.radius,blur:HEAT_BASE.roads.blur,maxZoom:16,minOpacity:.28,
-      gradient:{0.2:'#3a0d0d',0.45:'#9e2b2b',0.7:'#ff5a4d',1.0:'#ffd2b0'}});
-    if($('t-roads').checked) heatRoads.addTo(map);
     $('ct-roads').textContent=ways;
-    applyHeatZoom();
   }catch(e){
     $('ct-roads').textContent='—';
     console.warn('road network not loaded:',e.message);
@@ -388,7 +389,8 @@ async function loadRoads(){
 
 // ---------- Hive data (from repo file) ----------
 function renderHives(list){
-  hiveLayer.clearLayers(); radiusLayer.clearLayers();
+  hiveLayer.clearLayers(); radiusLayer.clearLayers(); hiveMarkers=[];
+  const icon=makeHiveIcon(hiveSizeFor(map.getZoom()));
   list.forEach(h=>{
     if(typeof h.lat!=='number'||typeof h.lng!=='number') return;
     // typical 1km ring — white
@@ -398,7 +400,7 @@ function renderHives(list){
     L.circle([h.lat,h.lng],{radius:3000,color:'#ffffff',weight:1,
       fill:false,opacity:.22,dashArray:'4 6'}).addTo(radiusLayer);
     // glowing white node
-    L.marker([h.lat,h.lng],{icon:hiveIcon,riseOnHover:true}).addTo(hiveLayer)
+    const mk=L.marker([h.lat,h.lng],{icon,riseOnHover:true}).addTo(hiveLayer)
       .bindPopup(
         `<span class="pin-title">${h.name||'Hive'}</span><br>`
         +`${h.species?'<i>'+h.species+'</i><br>':''}`
@@ -406,6 +408,7 @@ function renderHives(list){
         +`${h.date?h.date+'<br>':''}`
         +`${h.notes?h.notes:''}`
       );
+    hiveMarkers.push(mk);
   });
   $('ct-hives').textContent=list.length;
 }
@@ -426,7 +429,7 @@ async function loadHives(){
 // ---------- Layer toggles ----------
 $('t-all').onchange   =e=>{ if(!heatAll)return; e.target.checked?heatAll.addTo(map):map.removeLayer(heatAll); };
 $('t-apis').onchange  =e=>{ if(!heatApis)return; e.target.checked?heatApis.addTo(map):map.removeLayer(heatApis); };
-$('t-roads').onchange =e=>{ if(!heatRoads)return; e.target.checked?heatRoads.addTo(map):map.removeLayer(heatRoads); };
+$('t-roads').onchange =e=>{ e.target.checked?roadLayer.addTo(map):map.removeLayer(roadLayer); };
 $('t-hives').onchange =e=>{ e.target.checked?hiveLayer.addTo(map):map.removeLayer(hiveLayer); };
 $('t-radius').onchange=e=>{ e.target.checked?radiusLayer.addTo(map):map.removeLayer(radiusLayer); };
 
@@ -434,6 +437,11 @@ $('t-radius').onchange=e=>{ e.target.checked?radiusLayer.addTo(map):map.removeLa
 map.on('click',e=>{
   $('f-lat').value=e.latlng.lat.toFixed(5);
   $('f-lng').value=e.latlng.lng.toFixed(5);
+});
+
+// ---------- Region links → fly the map to that place ----------
+document.querySelectorAll('.region-link').forEach(el=>{
+  el.onclick=()=>map.flyTo([+el.dataset.lat,+el.dataset.lng], +el.dataset.zoom||13, {duration:1.1});
 });
 
 // ---------- Generate JSON entry ----------
