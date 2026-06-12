@@ -236,6 +236,23 @@ let heatAll=null, heatApis=null, heatRoads=null;
 const hiveLayer  = L.layerGroup().addTo(map);
 const radiusLayer= L.layerGroup().addTo(map);
 
+// Heat blur radius is a fixed pixel size, so zoomed out everything merges into
+// one blob. Scale each layer's radius/blur with zoom — tight dots when zoomed
+// out, filling in as you zoom in — to keep the map readable at every scale.
+const HEAT_BASE={               // radius/blur at the reference zoom (13)
+  all:  {radius:17, blur:13},
+  apis: {radius:18, blur:13},
+  roads:{radius:12, blur:10}
+};
+const scaleR=(z,base)=>Math.round(base*Math.max(.45,Math.min(1.8,1+(z-13)*0.18)));
+function applyHeatZoom(){
+  const z=map.getZoom();
+  if(heatAll)  heatAll.setOptions ({radius:scaleR(z,HEAT_BASE.all.radius),  blur:scaleR(z,HEAT_BASE.all.blur)});
+  if(heatApis) heatApis.setOptions({radius:scaleR(z,HEAT_BASE.apis.radius), blur:scaleR(z,HEAT_BASE.apis.blur)});
+  if(heatRoads)heatRoads.setOptions({radius:scaleR(z,HEAT_BASE.roads.radius),blur:scaleR(z,HEAT_BASE.roads.blur)});
+}
+map.on('zoomend',applyHeatZoom);
+
 // Glowing white hive marker (a divIcon so CSS can give it a soft glow/pulse)
 const hiveIcon = L.divIcon({className:'hive-node',iconSize:[14,14],iconAnchor:[7,7],popupAnchor:[0,-9]});
 
@@ -271,16 +288,17 @@ async function pullObs(taxonId){
 async function loadHeat(){
   try{
     const all = await pullObs(630955);          // Anthophila
-    heatAll = L.heatLayer(all.pts,{radius:22,blur:18,maxZoom:15,minOpacity:.25,
+    heatAll = L.heatLayer(all.pts,{radius:HEAT_BASE.all.radius,blur:HEAT_BASE.all.blur,maxZoom:15,minOpacity:.25,
       gradient:{0.2:'#1f3d12',0.5:'#5a9a2e',0.8:'#9fd36a',1.0:'#d6f0a0'}});
     if($('t-all').checked) heatAll.addTo(map);
     $('ct-all').textContent=all.pts.length;
 
     const apis = await pullObs(47219);           // Apis
-    heatApis = L.heatLayer(apis.pts,{radius:24,blur:16,maxZoom:15,minOpacity:.3,
+    heatApis = L.heatLayer(apis.pts,{radius:HEAT_BASE.apis.radius,blur:HEAT_BASE.apis.blur,maxZoom:15,minOpacity:.3,
       gradient:{0.2:'#5a3a06',0.5:'#c98a1e',0.8:'#e8a93b',1.0:'#ffd27a'}});
     if($('t-apis').checked) heatApis.addTo(map);
     $('ct-apis').textContent=apis.pts.length;
+    applyHeatZoom();
 
     setStatus(`${all.pts.length} bee + ${apis.pts.length} honeybee obs. loaded`);
   }catch(e){
@@ -357,10 +375,11 @@ async function loadRoads(){
       ways++;
       if(pts.length>ROAD_PT_CAP) break;
     }
-    heatRoads=L.heatLayer(pts,{radius:13,blur:11,maxZoom:16,minOpacity:.28,
+    heatRoads=L.heatLayer(pts,{radius:HEAT_BASE.roads.radius,blur:HEAT_BASE.roads.blur,maxZoom:16,minOpacity:.28,
       gradient:{0.2:'#3a0d0d',0.45:'#9e2b2b',0.7:'#ff5a4d',1.0:'#ffd2b0'}});
     if($('t-roads').checked) heatRoads.addTo(map);
     $('ct-roads').textContent=ways;
+    applyHeatZoom();
   }catch(e){
     $('ct-roads').textContent='—';
     console.warn('road network not loaded:',e.message);
