@@ -56,17 +56,13 @@
     text-transform:uppercase;letter-spacing:.14em;color:var(--honey);
   }
   .plate .regions{
-    margin:6px 0 0;padding-left:16px;font-size:11.5px;line-height:1.5;color:var(--ink-dim);
+    margin:6px 0 0;padding-left:2px;font-size:11.5px;line-height:1.4;color:var(--ink-dim);list-style:none;
   }
-  .plate .regions ul{
-    margin:4px 0 2px;padding-left:15px;list-style:circle;
-  }
-  .region-link{
-    cursor:pointer;color:var(--ink);border-bottom:1px dotted var(--honey);
-    transition:color .12s ease;
-  }
-  .region-link.top{font-weight:650}
-  .region-link:hover{color:var(--honey)}
+  .plate .regions ul{margin:2px 0 0;padding-left:20px;list-style:none}
+  .reg{display:flex;align-items:center;gap:7px;cursor:pointer;padding:2px 0;user-select:none;transition:color .12s ease}
+  .reg input{accent-color:var(--honey);width:13px;height:13px;cursor:pointer;flex:0 0 auto}
+  .reg.top{color:var(--ink);font-weight:650}
+  .reg:hover{color:var(--honey)}
 
   /* ---- Control panel ---- */
   .panel{
@@ -78,6 +74,14 @@
   }
   .panel section{padding:12px 14px;border-bottom:1px solid var(--line)}
   .panel section:last-child{border-bottom:none}
+  details.drawer > summary{cursor:pointer;list-style:none;display:flex;align-items:center}
+  details.drawer > summary::-webkit-details-marker{display:none}
+  details.drawer > summary h2{margin:0}
+  details.drawer[open] > summary{margin-bottom:9px}
+  details.drawer > summary::after{
+    content:"▸";margin-left:auto;color:var(--honey);font-size:11px;transition:transform .15s ease;
+  }
+  details.drawer[open] > summary::after{transform:rotate(90deg)}
   .panel h2{
     margin:0 0 9px;font-family:var(--mono);font-size:10px;font-weight:600;
     text-transform:uppercase;letter-spacing:.16em;color:var(--ink-dim);
@@ -156,14 +160,15 @@
     <summary><h1>🐝 Buzzmap</h1></summary>
     <div class="desc">Bee observation density, located honeybee colonies, and the urban grid that fragments their habitat.</div>
     <div class="regions-h">Regions covered</div>
+    <div class="desc" style="margin-top:6px">Tick a region to load its bees &amp; roads — data is pulled only for what you choose.</div>
     <ul class="regions">
       <li>
-        <a class="region-link top" data-lat="22.355" data-lng="114.135" data-zoom="11">Hong Kong</a>
+        <label class="reg top"><input type="checkbox" id="rg-all"> Hong Kong</label>
         <ul>
-          <li><a class="region-link" data-lat="22.265" data-lng="114.190" data-zoom="13">Hong Kong Island</a></li>
-          <li><a class="region-link" data-lat="22.320" data-lng="114.180" data-zoom="13">Kowloon</a></li>
-          <li><a class="region-link" data-lat="22.440" data-lng="114.120" data-zoom="12">New Territories</a></li>
-          <li><a class="region-link" data-lat="22.265" data-lng="113.945" data-zoom="12">Lantau Island</a></li>
+          <li><label class="reg"><input type="checkbox" class="rg" data-id="hki" checked> Hong Kong Island</label></li>
+          <li><label class="reg"><input type="checkbox" class="rg" data-id="kln"> Kowloon</label></li>
+          <li><label class="reg"><input type="checkbox" class="rg" data-id="nt"> New Territories</label></li>
+          <li><label class="reg"><input type="checkbox" class="rg" data-id="lantau"> Lantau Island</label></li>
         </ul>
       </li>
     </ul>
@@ -172,7 +177,8 @@
 
 <div class="panel">
   <section>
-    <h2>Layers</h2>
+    <details class="drawer" open>
+    <summary><h2>Layers</h2></summary>
     <label class="layer">
       <input type="checkbox" id="t-all" checked>
       <span class="swatch" style="background:var(--bee)"></span>
@@ -205,6 +211,7 @@
     <div class="note">Radii: solid ring ≈ 1 km typical forage, faint ring ≈ 3 km max (honeybee).</div>
     <div class="note">Road barriers: every vehicular road (motorways → residential) drawn as a line, shaded by activity — dim red = quiet street, bright red = busy/fast road (class, lanes &amp; speed limit, OSM). Footpaths and tunnels are excluded.</div>
     <div class="status" id="status">Loading observations…</div>
+    </details>
   </section>
 
   <section>
@@ -234,11 +241,20 @@
    Single-file. Reads hives.json from same dir. No build step.
    ============================================================ */
 
-// Hong Kong territory bounding box [S, W, N, E] — used for the iNat & road queries
-const HKI = { south:22.13, west:113.82, north:22.58, east:114.45, center:[22.355,114.135] };
+// Loadable regions. Each has its own bbox so observations + roads are pulled
+// only for the areas the user ticks — fetching all of Hong Kong at once is far
+// too heavy. The map opens on the default-checked region (Hong Kong Island).
+const REGIONS=[
+  {id:'hki',    name:'Hong Kong Island', s:22.200, w:114.120, n:22.295, e:114.260, center:[22.265,114.190], zoom:13},
+  {id:'kln',    name:'Kowloon',          s:22.295, w:114.130, n:22.380, e:114.240, center:[22.320,114.180], zoom:13},
+  {id:'nt',     name:'New Territories',  s:22.380, w:113.900, n:22.580, e:114.450, center:[22.440,114.120], zoom:12},
+  {id:'lantau', name:'Lantau Island',    s:22.180, w:113.820, n:22.310, e:114.060, center:[22.265,113.945], zoom:12}
+];
+const regionById=Object.fromEntries(REGIONS.map(r=>[r.id,r]));
+const DEFAULT_REGION=regionById['hki'];
 
 const map = L.map('map',{ zoomControl:true, attributionControl:true })
-  .setView(HKI.center, 11);
+  .setView(DEFAULT_REGION.center, DEFAULT_REGION.zoom);
 
 // Dark base tiles (CARTO dark) so the heat reads cleanly over the urban grid
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
@@ -299,14 +315,14 @@ map.on('zoomend',()=>{
 const $=id=>document.getElementById(id);
 const setStatus=(msg,err=false)=>{const s=$('status');s.textContent=msg;s.classList.toggle('err',err);};
 
-// ---------- iNaturalist observation pull ----------
+// ---------- iNaturalist observation pull (per region) ----------
 // taxon_id 630955 = Anthophila (bees, superfamily) ; 47219 = Apis (honeybees, genus)
-async function pullObs(taxonId){
+async function pullObs(taxonId, reg){
   const pts=[]; let page=1; const per=200; let total=Infinity;
-  while((page-1)*per < total && page<=10){  // hard cap 2000 pts/layer
+  while((page-1)*per < total && page<=10){  // hard cap 2000 pts/layer/region
     const url=`https://api.inaturalist.org/v1/observations`
       +`?taxon_id=${taxonId}`
-      +`&nelat=${HKI.north}&nelng=${HKI.east}&swlat=${HKI.south}&swlng=${HKI.west}`
+      +`&nelat=${reg.n}&nelng=${reg.e}&swlat=${reg.s}&swlng=${reg.w}`
       +`&quality_grade=research&geo=true&per_page=${per}&page=${page}`
       +`&order=desc&order_by=created_at`;
     const r=await fetch(url);
@@ -322,29 +338,77 @@ async function pullObs(taxonId){
     if(j.results.length<per) break;
     page++;
   }
-  return {pts,total};
+  return pts;
 }
 
-async function loadHeat(){
-  try{
-    const all = await pullObs(630955);          // Anthophila
-    heatAll = L.heatLayer(all.pts,{radius:HEAT_BASE.all.radius,blur:HEAT_BASE.all.blur,maxZoom:15,minOpacity:.25,
-      gradient:{0.2:'#1f3d12',0.5:'#5a9a2e',0.8:'#9fd36a',1.0:'#d6f0a0'}});
-    if($('t-all').checked) heatAll.addTo(map);
-    $('ct-all').textContent=all.pts.length;
+const heatStyle={
+  all: {radius:HEAT_BASE.all.radius, blur:HEAT_BASE.all.blur, maxZoom:15, minOpacity:.25,
+        gradient:{0.2:'#1f3d12',0.5:'#5a9a2e',0.8:'#9fd36a',1.0:'#d6f0a0'}},
+  apis:{radius:HEAT_BASE.apis.radius,blur:HEAT_BASE.apis.blur,maxZoom:15, minOpacity:.3,
+        gradient:{0.2:'#5a3a06',0.5:'#c98a1e',0.8:'#e8a93b',1.0:'#ffd27a'}}
+};
 
-    const apis = await pullObs(47219);           // Apis
-    heatApis = L.heatLayer(apis.pts,{radius:HEAT_BASE.apis.radius,blur:HEAT_BASE.apis.blur,maxZoom:15,minOpacity:.3,
-      gradient:{0.2:'#5a3a06',0.5:'#c98a1e',0.8:'#e8a93b',1.0:'#ffd27a'}});
-    if($('t-apis').checked) heatApis.addTo(map);
-    $('ct-apis').textContent=apis.pts.length;
-    applyHeatZoom();
+// Per-region data is fetched once then toggled in/out without re-fetching.
+const regionState={};
+REGIONS.forEach(r=>regionState[r.id]={loaded:false,loading:false,allPts:[],apisPts:[],roadGroup:null,ways:0});
 
-    setStatus(`${all.pts.length} bee + ${apis.pts.length} honeybee obs. loaded`);
-  }catch(e){
-    setStatus('Observation load failed: '+e.message,true);
-    $('ct-all').textContent='—'; $('ct-apis').textContent='—';
+const activeIds=()=>[...document.querySelectorAll('.rg')].filter(c=>c.checked).map(c=>c.dataset.id);
+const loadedActive=()=>activeIds().filter(id=>regionState[id].loaded);
+
+// Rebuild the two bee heat layers from whatever regions are currently active.
+function rebuildHeat(){
+  let allPts=[], apisPts=[], ways=0;
+  loadedActive().forEach(id=>{
+    const s=regionState[id];
+    allPts=allPts.concat(s.allPts); apisPts=apisPts.concat(s.apisPts); ways+=s.ways;
+  });
+  if(heatAll) heatAll.setLatLngs(allPts); else heatAll=L.heatLayer(allPts,heatStyle.all);
+  if(heatApis) heatApis.setLatLngs(apisPts); else heatApis=L.heatLayer(apisPts,heatStyle.apis);
+  applyHeatZoom();
+  $('t-all').checked ? heatAll.addTo(map) : map.removeLayer(heatAll);
+  $('t-apis').checked ? heatApis.addTo(map) : map.removeLayer(heatApis);
+  $('ct-all').textContent=allPts.length;
+  $('ct-apis').textContent=apisPts.length;
+  $('ct-roads').textContent=ways;
+}
+
+async function loadRegionData(reg){
+  const st=regionState[reg.id];
+  st.allPts  = await pullObs(630955, reg);   // Anthophila
+  st.apisPts = await pullObs(47219,  reg);   // Apis
+  const group=L.layerGroup();
+  st.ways = await loadRoadsInto(reg, group);
+  st.roadGroup=group;
+  st.loaded=true;
+}
+
+async function toggleRegion(id, on){
+  const reg=regionById[id], st=regionState[id];
+  if(on){
+    if(!st.loaded){
+      if(st.loading) return;
+      st.loading=true; setStatus('Loading '+reg.name+'…');
+      try{ await loadRegionData(reg); }
+      catch(e){ st.loading=false; setStatus(reg.name+' failed: '+e.message,true); return; }
+      st.loading=false;
+    }
+    if(st.roadGroup) roadLayer.addLayer(st.roadGroup);
+    map.flyTo(reg.center, reg.zoom, {duration:1.0});
+  }else if(st.roadGroup){
+    roadLayer.removeLayer(st.roadGroup);
   }
+  rebuildHeat();
+  syncParent();
+  const names=loadedActive().map(id=>regionById[id].name);
+  setStatus(names.length ? names.join(', ')+' loaded'
+    : 'No regions loaded — tick one under “Regions covered”.');
+}
+
+// Reflect child state in the "Hong Kong" parent checkbox.
+function syncParent(){
+  const boxes=[...document.querySelectorAll('.rg')];
+  const all=boxes.every(c=>c.checked), none=boxes.every(c=>!c.checked);
+  const p=$('rg-all'); p.checked=all; p.indeterminate=!all && !none;
 }
 
 // ---------- Road network → barrier lines (OpenStreetMap / Overpass) ----------
@@ -377,33 +441,28 @@ function roadWeight(tags){
   return Math.max(.04, Math.min(1, w));
 }
 
-async function loadRoads(){
-  try{
-    const q=`[out:json][timeout:60];`
-      +`way["highway"~"^(${ROAD_CLASSES.join('|')})$"]`
-      +`(${HKI.south},${HKI.west},${HKI.north},${HKI.east});`
-      +`out geom;`;
-    const r=await fetch('https://overpass-api.de/api/interpreter',
-      {method:'POST',body:'data='+encodeURIComponent(q)});
-    if(!r.ok) throw new Error('Overpass HTTP '+r.status);
-    const j=await r.json();
-    roadLayer.clearLayers();
-    let ways=0;
-    for(const el of j.elements){
-      if(el.type!=='way' || !el.geometry || !el.tags || !el.tags.highway) continue;
-      if(el.tags.tunnel && el.tags.tunnel!=='no') continue; // underground = no surface barrier
-      const w=roadWeight(el.tags);
-      L.polyline(el.geometry.map(g=>[g.lat,g.lon]),{
-        renderer:roadRenderer, color:roadColor(w),
-        weight:1+w*3, opacity:.5+w*.45, lineCap:'round', lineJoin:'round'
-      }).addTo(roadLayer);
-      ways++;
-    }
-    $('ct-roads').textContent=ways;
-  }catch(e){
-    $('ct-roads').textContent='—';
-    console.warn('road network not loaded:',e.message);
+// Pull a region's road network into its own layer group; returns the way count.
+async function loadRoadsInto(reg, group){
+  const q=`[out:json][timeout:60];`
+    +`way["highway"~"^(${ROAD_CLASSES.join('|')})$"]`
+    +`(${reg.s},${reg.w},${reg.n},${reg.e});`
+    +`out geom;`;
+  const r=await fetch('https://overpass-api.de/api/interpreter',
+    {method:'POST',body:'data='+encodeURIComponent(q)});
+  if(!r.ok) throw new Error('Overpass HTTP '+r.status);
+  const j=await r.json();
+  let ways=0;
+  for(const el of j.elements){
+    if(el.type!=='way' || !el.geometry || !el.tags || !el.tags.highway) continue;
+    if(el.tags.tunnel && el.tags.tunnel!=='no') continue; // underground = no surface barrier
+    const w=roadWeight(el.tags);
+    L.polyline(el.geometry.map(g=>[g.lat,g.lon]),{
+      renderer:roadRenderer, color:roadColor(w),
+      weight:1+w*3, opacity:.5+w*.45, lineCap:'round', lineJoin:'round'
+    }).addTo(group);
+    ways++;
   }
+  return ways;
 }
 
 // ---------- Hive data (from repo file) ----------
@@ -462,10 +521,16 @@ map.on('click',e=>{
   $('f-lng').value=e.latlng.lng.toFixed(5);
 });
 
-// ---------- Region links → fly the map to that place ----------
-document.querySelectorAll('.region-link').forEach(el=>{
-  el.onclick=()=>map.flyTo([+el.dataset.lat,+el.dataset.lng], +el.dataset.zoom||13, {duration:1.1});
+// ---------- Region checkboxes → load / unload that region ----------
+document.querySelectorAll('.rg').forEach(cb=>{
+  cb.onchange=()=>toggleRegion(cb.dataset.id, cb.checked);
 });
+$('rg-all').onchange=e=>{          // "Hong Kong" parent ticks/unticks all
+  const on=e.target.checked;
+  document.querySelectorAll('.rg').forEach(cb=>{
+    if(cb.checked!==on){ cb.checked=on; toggleRegion(cb.dataset.id, on); }
+  });
+};
 
 // ---------- Generate JSON entry ----------
 function nextId(){ return 'hk-'+String(Date.now()).slice(-6); }
@@ -491,8 +556,9 @@ $('copy').onclick=async()=>{
 
 // ---------- Go ----------
 loadHives();
-loadHeat();
-loadRoads();
+syncParent();
+// Load whatever regions start checked (Hong Kong Island by default).
+document.querySelectorAll('.rg:checked').forEach(cb=>toggleRegion(cb.dataset.id, true));
 </script>
 </body>
 </html>
