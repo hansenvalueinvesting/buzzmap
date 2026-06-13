@@ -2,12 +2,21 @@
   "hives": [
     {
       "id": "hk-013085",
-      "name": "Emerald Trail, Hong Kong Island",
+      "name": "Emerald Trail, Hong Kong Island, Hong Kong",
       "species": "Unknown",
       "lat": 22.24526,
       "lng": 114.17605,
       "date": "2026-06-12",
-      "notes": "Estimated based on iNaturalist activity."
-    }
+      "notes": "Estimated based on iNaturalist data."
+    },
+    {
+      "id": "hk-722096",
+      "name": "Moon Pond, Kowloon, Hong Kong",
+      "species": "Unknown",
+      "lat": 22.33436,
+      "lng": 114.13993,
+      "date": "2026-06-12",
+      "notes": "Estimated based on iNaturalist data. "
+    },
   ]
 }
