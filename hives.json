@@ -18,5 +18,14 @@
       "date": "2026-06-12",
       "notes": "Estimated based on iNaturalist data. "
     },
+    {
+    "id": "hk-026281",
+    "name": "Victoria Park, Hong Kong Island, Hong Kong",
+    "species": "Unknown",
+    "lat": 22.28227,
+    "lng": 114.18908,
+    "date": "2026-06-12",
+    "notes": "Estimated based on iNaturalist data."
+    },
   ]
 }
