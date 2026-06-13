@@ -27,5 +27,14 @@
     "date": "2026-06-12",
     "notes": "Estimated based on iNaturalist data."
     },
+    {
+      "id": "hk-217933",
+      "name": "Hong Kong Park, Hong Kong Island, Hong Kong",
+      "species": "Unknown",
+      "lat": 22.27768,
+      "lng": 114.16148,
+      "date": "2026-06-13",
+      "notes": "Estimated based on iNaturalist data. "
+    },
   ]
 }
