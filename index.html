@@ -431,6 +431,7 @@ async function toggleRegion(id, on){
   }
   rebuildRoads();
   rebuildHeat();
+  renderHives(hivesInActiveRegions());
   syncParent();
   const names=loadedActive().map(id=>regionById[id].name);
   setStatus(names.length ? names.join(', ')+' loaded'
@@ -496,6 +497,20 @@ async function fetchRoads(reg){
 }
 
 // ---------- Hive data (from repo file) ----------
+let allHives=[];
+
+function hivesInActiveRegions(){
+  const active=activeIds();
+  if(!active.length) return [];
+  return allHives.filter(h=>{
+    if(typeof h.lat!=='number'||typeof h.lng!=='number') return false;
+    return active.some(id=>{
+      const r=regionById[id];
+      return h.lat>=r.s && h.lat<=r.n && h.lng>=r.w && h.lng<=r.e;
+    });
+  });
+}
+
 function renderHives(list){
   hiveLayer.clearLayers(); radiusLayer.clearLayers(); hiveMarkers=[];
   const icon=makeHiveIcon(hiveSizeFor(map.getZoom()));
@@ -530,7 +545,8 @@ async function loadHives(){
     // can be pasted in a row — which leaves a trailing comma on the last one.
     // Strip trailing commas before parsing so that never breaks the map.
     const j=JSON.parse(text.replace(/,(\s*[}\]])/g,'$1'));
-    renderHives(j.hives||[]);
+    allHives=j.hives||[];
+    renderHives(hivesInActiveRegions());
   }catch(e){
     $('ct-hives').textContent='0';
     // Not fatal — repo may not have the file yet.
