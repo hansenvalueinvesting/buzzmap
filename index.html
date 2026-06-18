@@ -30,6 +30,25 @@
   html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans)}
   #map{position:absolute;inset:0;background:var(--bg)}
 
+  /* ---- Loading indicator (centre of map) ---- */
+  .loading{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    z-index:1200;display:none;align-items:center;gap:11px;
+    background:linear-gradient(180deg,rgba(20,29,23,.96),rgba(14,20,16,.96));
+    border:1px solid var(--panel-edge);border-radius:10px;
+    padding:13px 18px;backdrop-filter:blur(6px);
+    box-shadow:0 8px 30px rgba(0,0,0,.45);
+    font-size:13px;letter-spacing:.01em;color:var(--ink);
+    pointer-events:none;
+  }
+  .loading.show{display:flex}
+  .loading .spinner{
+    width:16px;height:16px;flex:0 0 auto;border-radius:50%;
+    border:2px solid var(--honey-soft);border-top-color:var(--honey);
+    animation:spin .8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+
   /* ---- Title plate ---- */
   .plate{
     position:absolute;top:14px;left:14px;z-index:1000;
@@ -160,6 +179,11 @@
 <body>
 
 <div id="map"></div>
+
+<div class="loading" id="loading">
+  <span class="spinner"></span>
+  <span id="loading-text">Loading heat map…</span>
+</div>
 
 <div class="plate">
   <details class="about" open>
@@ -341,6 +365,21 @@ map.on('zoomend',()=>{
 const $=id=>document.getElementById(id);
 const setStatus=(msg,err=false)=>{const s=$('status');s.textContent=msg;s.classList.toggle('err',err);};
 
+// Centre-of-map loading indicator. The heat map is fetched live from iNaturalist
+// + Overpass, which can take a while, so show a clear "loading" badge while any
+// region is in flight. A counter keeps it visible until the last load settles
+// (ticking several regions at once kicks off concurrent loads).
+let loadingCount=0;
+function showLoading(msg){
+  loadingCount++;
+  $('loading-text').textContent=msg||'Loading heat map…';
+  $('loading').classList.add('show');
+}
+function hideLoading(){
+  loadingCount=Math.max(0,loadingCount-1);
+  if(loadingCount===0) $('loading').classList.remove('show');
+}
+
 // ---------- iNaturalist observation pull (per region) ----------
 // taxon_id 630955 = Anthophila (bees, superfamily) ; 47219 = Apis (honeybees, genus)
 async function pullObs(taxonId, reg){
@@ -424,10 +463,10 @@ async function toggleRegion(id, on){
   const reg=regionById[id], st=regionState[id];
   if(on && !st.loaded){
     if(st.loading) return;
-    st.loading=true; setStatus('Loading '+reg.name+'…');
+    st.loading=true; setStatus('Loading '+reg.name+'…'); showLoading('Loading '+reg.name+'…');
     try{ await loadRegionData(reg); }
-    catch(e){ st.loading=false; setStatus(reg.name+' failed: '+e.message,true); return; }
-    st.loading=false;
+    catch(e){ st.loading=false; hideLoading(); setStatus(reg.name+' failed: '+e.message,true); return; }
+    st.loading=false; hideLoading();
   }
   rebuildRoads();
   rebuildHeat();
