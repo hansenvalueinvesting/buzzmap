@@ -27,7 +27,7 @@
     --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans)}
+  html,body{margin:0;height:100vh;height:100dvh;background:var(--bg);color:var(--ink);font-family:var(--sans)}
   #map{position:absolute;inset:0;background:var(--bg)}
 
   /* ---- Loading indicator (centre of map) ---- */
@@ -176,8 +176,27 @@
   }
 
   @media (max-width:720px){
-    .plate{max-width:none;left:10px;right:10px;top:10px}
-    .panel{position:absolute;top:auto;bottom:10px;right:10px;left:10px;width:auto;max-height:46%}
+    /* The two cards otherwise sandwich the map into a sliver. Both drawers start
+       collapsed (see JS) so each card shrinks to just its header bar — the map
+       gets the screen — and everything is one tap away. Nothing is removed. */
+    .plate{max-width:none;left:8px;right:8px;top:8px;padding:12px 14px}
+    .panel{
+      position:absolute;top:auto;bottom:8px;right:8px;left:8px;width:auto;
+      max-height:72%;border-radius:16px 16px 14px 14px;
+    }
+    /* Bottom-sheet grab handle so the panel reads as a pull-up sheet */
+    .panel::before{
+      content:"";display:block;width:36px;height:4px;border-radius:3px;
+      background:var(--panel-edge);margin:8px auto 0;
+    }
+    /* Roomier tap targets (≈44px rows, larger boxes) for fingers */
+    .reg-row{padding:7px 0}
+    .layer{padding:10px 0;gap:11px}
+    .reg-row .rg,.reg-row #rg-all,.layer input{width:20px;height:20px}
+    .reg-go{font-size:15px;line-height:1;padding:7px 11px}
+    details.drawer > summary,.about > summary,details.admin summary{padding:4px 0}
+    .plate .desc,.plate .regions,.plate .regions-h{font-size:12.5px}
+    .layer .lbl{font-size:13.5px}
   }
 </style>
 </head>
@@ -684,6 +703,15 @@ $('copy').onclick=async()=>{
   try{ await navigator.clipboard.writeText(t); $('copy').textContent='Copied ✓';
     setTimeout(()=>$('copy').textContent='Copy to clipboard',1400);}catch(_){}
 };
+
+// ---------- Mobile: start with the cards collapsed ----------
+// On phones the title plate + control panel otherwise cover most of the map.
+// Collapse their drawers on load so each card is just a tappable header bar and
+// the map fills the screen — every control (regions, layers, add-a-hive) is
+// still there, one tap away. Desktop is unaffected.
+if(window.matchMedia('(max-width:720px)').matches){
+  document.querySelectorAll('.about, .panel details.drawer').forEach(d=>d.removeAttribute('open'));
+}
 
 // ---------- Go ----------
 loadHives();
