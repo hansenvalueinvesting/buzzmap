@@ -33,21 +33,26 @@
   /* ---- Loading indicator (centre of map) ---- */
   .loading{
     position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-    z-index:1200;display:none;align-items:center;gap:11px;
+    z-index:1200;display:none;align-items:flex-start;gap:12px;
     background:linear-gradient(180deg,rgba(20,29,23,.96),rgba(14,20,16,.96));
-    border:1px solid var(--panel-edge);border-radius:10px;
-    padding:13px 18px;backdrop-filter:blur(6px);
+    border:1px solid var(--panel-edge);border-radius:12px;
+    padding:16px 20px;backdrop-filter:blur(6px);
     box-shadow:0 8px 30px rgba(0,0,0,.45);
-    font-size:13px;letter-spacing:.01em;color:var(--ink);
-    pointer-events:none;
+    color:var(--ink);pointer-events:none;
+    min-width:200px;max-width:300px;
   }
   .loading.show{display:flex}
   .loading .spinner{
-    width:16px;height:16px;flex:0 0 auto;border-radius:50%;
+    width:18px;height:18px;flex:0 0 auto;border-radius:50%;margin-top:1px;
     border:2px solid var(--honey-soft);border-top-color:var(--honey);
     animation:spin .8s linear infinite;
   }
   @keyframes spin{to{transform:rotate(360deg)}}
+  .loading .l-title{font-size:13.5px;font-weight:650;letter-spacing:.01em}
+  .loading .l-detail{
+    margin-top:5px;font-family:var(--mono);font-size:10.5px;line-height:1.5;
+    color:var(--ink-dim);min-height:1.5em;
+  }
 
   /* ---- Title plate ---- */
   .plate{
@@ -182,7 +187,10 @@
 
 <div class="loading" id="loading">
   <span class="spinner"></span>
-  <span id="loading-text">Loading heat map…</span>
+  <div>
+    <div class="l-title" id="loading-text">Loading heat map…</div>
+    <div class="l-detail" id="loading-detail"></div>
+  </div>
 </div>
 
 <div class="plate">
@@ -366,25 +374,32 @@ const $=id=>document.getElementById(id);
 const setStatus=(msg,err=false)=>{const s=$('status');s.textContent=msg;s.classList.toggle('err',err);};
 
 // Centre-of-map loading indicator. The heat map is fetched live from iNaturalist
-// + Overpass, which can take a while, so show a clear "loading" badge while any
-// region is in flight. A counter keeps it visible until the last load settles
-// (ticking several regions at once kicks off concurrent loads).
+// + Overpass, which can take a while, so show a clear "loading" badge over the
+// middle of the map while any region is in flight, with a live detail line that
+// mirrors the same progress shown in the side panel's status. A counter keeps it
+// visible until the last load settles (ticking several regions at once kicks off
+// concurrent loads).
 let loadingCount=0;
-function showLoading(msg){
+function showLoading(title){
   loadingCount++;
-  $('loading-text').textContent=msg||'Loading heat map…';
+  $('loading-text').textContent=title||'Loading heat map…';
+  $('loading-detail').textContent='';
   $('loading').classList.add('show');
 }
+function loadingDetail(msg){ $('loading-detail').textContent=msg||''; }
 function hideLoading(){
   loadingCount=Math.max(0,loadingCount-1);
   if(loadingCount===0) $('loading').classList.remove('show');
 }
+// Report a progress step to both the side-panel status and the centre badge.
+function reportProgress(reg,msg){ setStatus(reg.name+' — '+msg); loadingDetail(msg); }
 
 // ---------- iNaturalist observation pull (per region) ----------
 // taxon_id 630955 = Anthophila (bees, superfamily) ; 47219 = Apis (honeybees, genus)
-async function pullObs(taxonId, reg){
+async function pullObs(taxonId, reg, label, onProgress){
   const pts=[]; let page=1; const per=200; let total=Infinity;
   while((page-1)*per < total && page<=10){  // hard cap 2000 pts/layer/region
+    onProgress&&onProgress(`${label}: ${pts.length} observation${pts.length===1?'':'s'}…`);
     const url=`https://api.inaturalist.org/v1/observations`
       +`?taxon_id=${taxonId}`
       +`&nelat=${reg.n}&nelng=${reg.e}&swlat=${reg.s}&swlng=${reg.w}`
@@ -403,6 +418,7 @@ async function pullObs(taxonId, reg){
     if(j.results.length<per) break;
     page++;
   }
+  onProgress&&onProgress(`${label}: ${pts.length} observation${pts.length===1?'':'s'}`);
   return pts;
 }
 
@@ -450,11 +466,12 @@ function rebuildHeat(){
   $('ct-roads').textContent=ways;
 }
 
-async function loadRegionData(reg){
+async function loadRegionData(reg, onProgress){
+  const p=onProgress||(()=>{});
   const st=regionState[reg.id];
-  st.allPts  = await pullObs(630955, reg);   // Anthophila
-  st.apisPts = await pullObs(47219,  reg);   // Apis
-  st.roads   = await fetchRoads(reg);
+  st.allPts  = await pullObs(630955, reg, 'All bees', p);   // Anthophila
+  st.apisPts = await pullObs(47219,  reg, 'Honeybees', p);  // Apis
+  st.roads   = await fetchRoads(reg, p);
   st.ways    = st.roads.length;
   st.loaded=true;
 }
@@ -463,8 +480,9 @@ async function toggleRegion(id, on){
   const reg=regionById[id], st=regionState[id];
   if(on && !st.loaded){
     if(st.loading) return;
-    st.loading=true; setStatus('Loading '+reg.name+'…'); showLoading('Loading '+reg.name+'…');
-    try{ await loadRegionData(reg); }
+    st.loading=true;
+    setStatus('Loading '+reg.name+'…'); showLoading('Loading '+reg.name+'…');
+    try{ await loadRegionData(reg, msg=>reportProgress(reg,msg)); }
     catch(e){ st.loading=false; hideLoading(); setStatus(reg.name+' failed: '+e.message,true); return; }
     st.loading=false; hideLoading();
   }
@@ -514,25 +532,48 @@ function roadWeight(tags){
   return Math.max(.04, Math.min(1, w));
 }
 
+// Overpass is a free, shared service that regularly returns 504/429/503 when
+// busy. Round-robin a few public mirrors with exponential backoff so a single
+// overloaded endpoint no longer fails the whole region load.
+const OVERPASS_ENDPOINTS=[
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
 // Pull a region's road network as cached geometry: [{ll:[[lat,lng]…], w:weight}].
 // rebuildRoads() turns these into polylines; caching data (not layers) keeps
 // toggling a region off and on again reliable.
-async function fetchRoads(reg){
+async function fetchRoads(reg, onProgress){
   const q=`[out:json][timeout:60];`
     +`way["highway"~"^(${ROAD_CLASSES.join('|')})$"]`
     +`(${reg.s},${reg.w},${reg.n},${reg.e});`
     +`out geom;`;
-  const r=await fetch('https://overpass-api.de/api/interpreter',
-    {method:'POST',body:'data='+encodeURIComponent(q)});
-  if(!r.ok) throw new Error('Overpass HTTP '+r.status);
-  const j=await r.json();
-  const roads=[];
-  for(const el of j.elements){
-    if(el.type!=='way' || !el.geometry || !el.tags || !el.tags.highway) continue;
-    if(el.tags.tunnel && el.tags.tunnel!=='no') continue; // underground = no surface barrier
-    roads.push({ ll:el.geometry.map(g=>[g.lat,g.lon]), w:roadWeight(el.tags) });
+  const MAX_ATTEMPTS=6;
+  let lastErr;
+  for(let attempt=0; attempt<MAX_ATTEMPTS; attempt++){
+    const ep=OVERPASS_ENDPOINTS[attempt%OVERPASS_ENDPOINTS.length];
+    onProgress&&onProgress(attempt===0 ? 'Road network…'
+      : `Road network — server busy, retry ${attempt}/${MAX_ATTEMPTS-1}…`);
+    try{
+      const r=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q)});
+      if(!r.ok) throw new Error('Overpass HTTP '+r.status);  // 504/429/503 → retry
+      const j=await r.json();
+      const roads=[];
+      for(const el of j.elements){
+        if(el.type!=='way' || !el.geometry || !el.tags || !el.tags.highway) continue;
+        if(el.tags.tunnel && el.tags.tunnel!=='no') continue; // underground = no surface barrier
+        roads.push({ ll:el.geometry.map(g=>[g.lat,g.lon]), w:roadWeight(el.tags) });
+      }
+      onProgress&&onProgress(`Road network: ${roads.length} roads`);
+      return roads;
+    }catch(e){
+      lastErr=e;
+      if(attempt<MAX_ATTEMPTS-1) await sleep(Math.min(8000, 1500*(attempt+1)));
+    }
   }
-  return roads;
+  throw lastErr;  // all mirrors exhausted
 }
 
 // ---------- Hive data (from repo file) ----------
